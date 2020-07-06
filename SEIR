@@ -1,0 +1,135 @@
+import networkx as nx
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from copy import copy
+
+class SEIR:
+    def __init__(self,G,weighted=False,configuration=False): 
+        print("Inicializando modelo...")
+        np.random.seed(2)
+        self.G= copy(G)
+        self.S=list(self.G.nodes()) #Susceptibles
+        self.E=[]                   #Expuestos
+        self.I=[]                   #Infectados
+        self.A=[]                   #Asintomáticos
+        self.R=[]                   #Recuperados
+        self.SD = [] # S(t)
+        self.ED = [] # E(t)
+        self.ID = [] # I(t)
+        self.AD = [] # A(t)
+        self.RD = [] # R(t)
+        self.CD = [] # CD(t)
+        self.weighted = weighted
+
+        for v in self.G.nodes():
+            #Inicialización de nodos
+            self.G.nodes[v]['state'] = 'S'
+            self.G.nodes[v]['rt'] = 100
+        if(configuration==False):
+          nodo = np.random.randint(0,len(G))
+          self.S.remove(nodo)
+          self.I.append(nodo)
+          self.G.nodes[nodo]['state'] = 'I'
+          self.SD.append(len(self.S))
+          self.ED.append(len(self.E))
+          self.ID.append(len(self.I))
+          self.AD.append(len(self.A))
+          self.RD.append(len(self.R))
+          self.CD.append(len(self.I))
+        else:
+          [self.E,self.I,self.A,self.R,self.SD,self.ED,self.ID,self.AD,self.RD,self.CD,rt1,rt2]=configuration
+          for i in range(len(rt1)):
+            self.G.nodes[self.E[i]]['rt']=rt1[i]
+          for i in range(len(rt2)):
+            self.G.nodes[self.I[i]]['rt']=rt2[i]
+          for expuesto in self.E:
+            self.G.nodes[expuesto]['state']='E'
+          for infectado in self.I:
+            self.G.nodes[infectado]['state']='I'
+          for asintomatico in self.A:
+            self.G.nodes[asintomatico]['state']='A'
+          for recuperado in self.R:
+            self.G.nodes[recuperado]['state']='R'
+        print("Modelo inicializado.")
+        
+    def setParameters(self,beta,Tincubacion,Trecuperacion,Pa=0.8):#Tincubacion=periodo de incubacion, T recuperacion=periodo de recuperacion
+        self.beta=beta
+        self.Tincubacion=Tincubacion
+        self.Trecuperacion=Trecuperacion
+        self.Pa=Pa#Porcentaje de asintomaticos
+
+    def getParams(self):
+        return self.G, self.pos
+    
+    def Run(self,movilidad):
+        contactos=[]
+        cd = 0
+        for Infectado in self.I:
+            contactos += list(self.G.edges([Infectado]))
+        for contacto in contactos:
+            #beta = self.beta*G.edges[contacto[0],contacto[1]]['weight'] if self.weighted else self.beta
+            beta=self.beta*(1+movilidad*0.01)
+            if(random.random()<beta and self.G.nodes[contacto[1]]['state']=='S'):#susceptible entra en contacto con Infectado
+                self.G.nodes[contacto[1]]['state']='E' #entra en la categoria de expuesto
+                self.S.remove(contacto[1])
+                self.E.append(contacto[1])
+                self.G.nodes[contacto[1]]['rt'] = np.abs(np.random.normal(self.Tincubacion, 1))
+
+        Expuestos=copy(self.E)
+        for Expuesto in Expuestos:
+            self.G.nodes[Expuesto]['rt'] -=1
+            if(self.G.nodes[Expuesto]['rt'] < 1):
+                if(random.random()>self.Pa):
+                    self.G.nodes[Expuesto]['state'] = 'I'  # entra en la categoria de infectado
+                    self.G.nodes[Expuesto]['rt'] = np.abs(np.random.normal(self.Trecuperacion, 1))
+                    self.E.remove(Expuesto)
+                    self.I.append(Expuesto)
+                    cd+=1
+                else:
+                    self.G.nodes[Expuesto]['state'] = 'A'  # entra en la categoria de asintomático
+
+        Infectados=copy(self.I)
+        for Infectado in Infectados:
+            self.G.nodes[Infectado]['rt'] -=1
+            if self.G.nodes[Infectado]['rt'] <1:
+                self.G.nodes[Infectado]['state'] = 'R'  # entra en la categoria de recuperado
+                self.I.remove(Infectado)
+                self.R.append(Infectado)
+
+        self.SD.append(len(self.S))
+        self.ED.append(len(self.E))
+        self.ID.append(len(self.I))
+        self.AD.append(len(self.A))
+        self.RD.append(len(self.R))
+        self.CD.append(cd)
+        return cd
+
+    def getConfigurationSpace(self):
+        rt1=[]
+        rt2=[]
+        for Expuesto in self.E:
+          rt1.append(self.G.nodes[Expuesto]['rt'])
+        for Infectado in self.I:
+          rt2.append(self.G.nodes[Infectado]['rt'])
+        ConfigSpace=[self.E,self.I,self.A,self.R,self.SD,self.ED,self.ID,self.AD,self.RD,self.CD,rt1,rt2]
+        return ConfigSpace
+
+    def setConfigurationSpace(self,ConfigSpace):
+        [self.E,self.I,self.A,self.R,self.SD,self.ED,self.ID,self.AD,self.RD,self.CD,rt1,rt2]=ConfigSpace
+        for i in range(len(rt1)):
+          self.G.nodes[self.E[i]]['rt']=rt1[i]
+        for i in range(len(rt2)):
+          self.G.nodes[self.I[i]]['rt']=rt2[i]
+        for expuesto in self.E:
+          self.G.nodes[expuesto]['state']='E'
+        for infectado in self.I:
+          self.G.nodes[infectado]['state']='I'
+        for asintomatico in self.A:
+          self.G.nodes[asintomatico]['state']='A'
+        for recuperado in self.R:
+          self.G.nodes[recuperado]['state']='R'
+
+    def getDinamics(self):
+        return np.array(self.SD),np.array(self.ED),np.array(self.ID),np.array(self.RD),np.array(self.CD)
+  
